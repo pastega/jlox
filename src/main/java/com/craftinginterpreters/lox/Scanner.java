@@ -113,7 +113,7 @@ public class Scanner {
                 } else if (isAlpha(c)) {
                     identifier();
                 } else {
-                    Lox.error(line, "Unexpected Character");
+                    Lox.error(null, "Unexpected Character");
                 }
         }
     }
