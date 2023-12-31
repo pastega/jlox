@@ -13,10 +13,22 @@ public class GenerateAst {
         if (args.length > 1) outputDir = args[0];
 
         defineAst(outputDir, "Expr", Arrays.asList(
+                "Assign   : Token name, Expr value",
                 "Binary   : Expr left, Token operator, Expr right",
                 "Grouping : Expr expression",
                 "Literal  : Object value",
-                "Unary    : Token operator, Expr right"
+                "Logical  : Expr left, Token operator, Expr right",
+                "Unary    : Token operator, Expr right",
+                "Variable : Token name"
+        ));
+
+        defineAst(outputDir, "Stmt", Arrays.asList(
+                "Block      : List<Stmt> statements",
+                "Expression : Expr expression",
+                "If         : Expr condition, Stmt thenBranch, Stmt elseBranch",
+                "Print      : Expr expression",
+                "Var        : Token name, Expr initializer",
+                "While      : Expr condition, Stmt body"
         ));
 
     }
@@ -29,7 +41,7 @@ public class GenerateAst {
         writer.println();
         writer.println("import java.util.List;");
         writer.println();
-        writer.println("abstract class " + baseName + " {");
+        writer.println("public abstract class " + baseName + " {");
 
         defineVisitor(writer, baseName, types);
 
@@ -61,7 +73,7 @@ public class GenerateAst {
 
     private static void defineType(PrintWriter writer, String baseName, String className, String fieldList) {
 
-        writer.println("  static class " + className + " extends " + baseName + " {");
+        writer.println("  public static class " + className + " extends " + baseName + " {");
 
         // Constructor.
         writer.println("    " + className + "(" + fieldList + ") {");
