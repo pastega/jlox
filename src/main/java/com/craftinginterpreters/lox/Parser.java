@@ -1,6 +1,5 @@
 package com.craftinginterpreters.lox;
 
-import javax.swing.plaf.basic.BasicTreeUI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -47,15 +46,21 @@ public class Parser {
      *
      *  program -> declaration* EOF;
      *
-     *  declaration -> varDecl | statement;
+     *  declaration -> funDecl | varDecl | statement;
      *  varDecl -> "var" IDENTIFIER ("=" expression)? ";";
      *
-     *  statement -> exprStmt | forStmt | ifStmt | printStmt | whileStatement | block;
+     *  funDecl -> "fun" function;
+     *  function -> IDENTIFIER "(" parameters? ")" block;
+     *  parameters -> IDENTIFIER ("," IDENTIFIER)*;
+     *
+     *  statement -> exprStmt | forStmt | ifStmt | printStmt | returnStmt | whileStatement | block;
      *  exprStmt -> expression ";";
      *  forStmt -> "for" "(" (varDecl | exprStmt | ";") expression? ";" expression? ")" statement;
      *  ifStmt -> "if" "(" expression ")" statement ("else" statement)?;
      *  printStmt -> "print" expression ";";
+     *  returnStmt -> "return" expression? ";";
      *  whileStatement -> "while" "(" expression ")" statement;
+     *
      *  block -> "{" declaration* "}";
      *
      *  EXPRESSION
@@ -69,6 +74,8 @@ public class Parser {
      *  term -> factor ( ( "-" | "+" ) factor )*;
      *  factor -> unary ( ( "/" | "*" ) unary )*;
      *  unary -> ( "!" | "-" ) unary | primary;
+     *  call -> primary ( "(" arguments? ")" )*;
+     *  arguments -> expression ( "," expression )*;
      *  primary -> IDENTIFIER | NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")";
      *
      *  ** higher precedence (bottom of our grammar)
@@ -85,6 +92,7 @@ public class Parser {
     private Stmt declaration() {
         try {
             if (match(VAR)) return varDeclaration();
+            if (match(FUN)) return function("function");
 
             return statement();
         } catch (ParseError error) {
@@ -105,8 +113,48 @@ public class Parser {
         return new Stmt.Var(name, initializer);
     }
 
+    private Stmt.Function function(String kind) {
+        Token name = consume(IDENTIFIER, "Expected " + kind + " name.");
+
+        consume(LEFT_PAREN, "Expected '(' after " + kind + " name.");
+        List<Token> parameters = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (parameters.size() >= 255)
+                    //noinspection ThrowableNotThrown
+                    error(peek(), "Can't have more than 255 parameters");
+
+                parameters.add(
+                        consume(IDENTIFIER, "Expect parameter name!"));
+
+            } while (match(COMMA));
+        }
+        consume(RIGHT_PAREN, "Expected ')' after parameters.");
+
+        /*
+         *  block() rule assumes '{' token was already consumed.
+         *  That way we can report a more precise error message
+         *  since we know it's in the context of a function declaration
+         */
+        consume(LEFT_BRACE, "Expected '{' before " + kind + "body.");
+        List<Stmt> body = block();
+        return new Stmt.Function(name, parameters, body);
+    }
+
+    private Stmt returnStatement() {
+        Token keyword = previous();
+        Expr value = null;
+        if (!check(SEMICOLON)) {
+            value = expression();
+        }
+
+        consume(SEMICOLON, "Expected ';' after return value.");
+        return new Stmt.Return(keyword, value);
+    }
+
     private Stmt statement() {
         if (match(PRINT)) return printStatement();
+        if (match(RETURN)) return returnStatement();
         if (match(IF)) return ifStatement();
         if (match(WHILE)) return whileStatement();
         if (match(FOR)) return forStmt();
@@ -316,7 +364,34 @@ public class Parser {
         }
 
         // If execution reaches this point. We got the highest level of precedence
-        return primary();
+        return call();
+    }
+
+    private Expr call() {
+        Expr expr = primary();
+
+        //noinspection ConditionalBreakInInfiniteLoop
+        while (true) {
+            if (!match(LEFT_PAREN))
+                break;
+            expr = finishCall(expr);
+        }
+        return expr;
+    }
+
+    private Expr finishCall(Expr callee) {
+        List<Expr> arguments = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (arguments.size() >= 255)
+                    //noinspection ThrowableNotThrown
+                    error(peek(), "Can't have more than 255 arguments!");
+                arguments.add(expression());
+            } while (match(COMMA));
+        }
+
+        Token paren = consume(RIGHT_PAREN, "Expected ')' after arguments.");
+        return new Expr.Call(callee, paren, arguments);
     }
 
     private Expr primary() {

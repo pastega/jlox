@@ -200,8 +200,7 @@ public class Scanner {
     }
 
     private boolean isAlpha(char c) {
-        //noinspection ConditionCoveredByFurtherCondition,ConstantValue
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c >= 'Z') || c == '_';
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
     }
 
     private boolean isAlphanumeric(char c) {
