@@ -9,7 +9,7 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
 
     /*
      *  global -> global environment (where builtin functions and constants are defined)
-     *  environment -> changes according to scope
+     *  environment -> changes according to current scope
      */
     public final Environment globals = new Environment();
     private Environment environment = globals;
@@ -34,7 +34,6 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
             }
         });
     }
-
 
     public void interpret(List<Stmt> statements) {
         try {
@@ -80,6 +79,22 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         executeBlock(stmt.statements, new Environment(environment));
         return null;
     }
+
+    @Override
+    public Void visitClassStmt(Stmt.Class stmt) {
+        environment.define(stmt.name.lexeme, null);
+
+        Map<String, LoxFunction> methods = new HashMap<>();
+        for (Stmt.Function method : stmt.methods) {
+            LoxFunction function = new LoxFunction(method, environment);
+            methods.put(method.name.lexeme, function);
+        }
+
+        LoxClass loxClass = new LoxClass(stmt.name.lexeme, methods);
+        environment.assign(stmt.name, loxClass);
+        return null;
+    }
+
     @Override
     public Void visitExpressionStmt(Stmt.Expression stmt) {
         evaluate(stmt.expression);
@@ -224,14 +239,24 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         }
 
         @SuppressWarnings("PatternVariableCanBeUsed")
-        LoxCallable function = (LoxCallable)callee;
+        LoxCallable callable = (LoxCallable)callee;
 
-        if (arguments.size() != function.arity()) {
+        if (arguments.size() != callable.arity()) {
             throw new RuntimeError(expr.paren,
-            "Expected" + function.arity() + " arguments but got " + arguments.size() + ".");
+            "Expected" + callable.arity() + " arguments but got " + arguments.size() + ".");
         }
         // The implementer's job is to return the value that the call expression produces
-        return function.call(this, arguments);
+        return callable.call(this, arguments);
+    }
+
+    @Override
+    public Object visitGetExpr(Expr.Get expr) {
+        Object object = evaluate(expr.object);
+        if (object instanceof LoxInstance) {
+            return ((LoxInstance) object).get(expr.name);
+        }
+
+        throw new RuntimeError(expr.name, "Only instances have properties");
     }
 
     @Override
@@ -255,6 +280,24 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         }
 
         return evaluate(expr.right);
+    }
+
+    @Override
+    public Object visitSetExpr(Expr.Set expr) {
+        Object object = evaluate(expr.object);
+
+        if (!(object instanceof  LoxInstance)) {
+            throw new RuntimeError(expr.name, "Only instances have fields.");
+        }
+
+        Object value = evaluate(expr.value);
+        ((LoxInstance)object).set(expr.name, value);
+        return value;
+    }
+
+    @Override
+    public Object visitThisExpr(Expr.This expr) {
+        return lookupVariable(expr.keyword, expr);
     }
 
     @Override
@@ -283,7 +326,7 @@ public class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         Integer distance = locals.get(expr);
         if (distance != null)
             return environment.getAt(distance, name.lexeme);
-        return globals.get(name);
+        return globals.get(name); // Variable is in global scope.
     }
 
     // Helper methods

@@ -46,8 +46,10 @@ public class Parser {
      *
      *  program -> declaration* EOF;
      *
-     *  declaration -> funDecl | varDecl | statement;
+     *  declaration -> classDecl | funDecl | varDecl | statement;
      *  varDecl -> "var" IDENTIFIER ("=" expression)? ";";
+     *
+     *  classDecl -> "class" IDENTIFIER "{" function* "}";
      *
      *  funDecl -> "fun" function;
      *  function -> IDENTIFIER "(" parameters? ")" block;
@@ -66,7 +68,7 @@ public class Parser {
      *  EXPRESSION
      *
      *  expression -> assignment;
-     *  assignment -> IDENTIFIER "=" assignment | logic_or;
+     *  assignment -> (call ".")? IDENTIFIER "=" assignment | logic_or;
      *  logic_or -> logic_and ("or" logic_and)*;
      *  logic_and -> equality ("and" equality)*;
      *  equality -> comparison ( ("!=" | "==" ) comparison)*;
@@ -74,7 +76,7 @@ public class Parser {
      *  term -> factor ( ( "-" | "+" ) factor )*;
      *  factor -> unary ( ( "/" | "*" ) unary )*;
      *  unary -> ( "!" | "-" ) unary | primary;
-     *  call -> primary ( "(" arguments? ")" )*;
+     *  call -> primary ( "(" arguments? ")" | . IDENTIFIER )*;
      *  arguments -> expression ( "," expression )*;
      *  primary -> IDENTIFIER | NUMBER | STRING | "true" | "false" | "nil" | "(" expression ")";
      *
@@ -91,6 +93,7 @@ public class Parser {
     //  all the parsing begins here...
     private Stmt declaration() {
         try {
+            if (match(CLASS)) return classDeclaration();
             if (match(VAR)) return varDeclaration();
             if (match(FUN)) return function("function");
 
@@ -99,6 +102,19 @@ public class Parser {
             synchronize();
             return null;
         }
+    }
+
+    private Stmt classDeclaration() {
+        Token name = consume(IDENTIFIER, "Expected class name.");
+        consume(LEFT_BRACE, "Expected '{' before class body.");
+
+        List<Stmt.Function> methods = new ArrayList<>();
+        while(!check(RIGHT_BRACE) && !isAtEnd()) {
+            methods.add(function("method"));
+        }
+
+        consume(RIGHT_BRACE, "Expected '}' after class body.");
+        return new Stmt.Class(name, methods);
     }
 
     private Stmt varDeclaration() {
@@ -271,12 +287,16 @@ public class Parser {
         if (match(EQUAL)) {
             // This is an assignment
             Token equals = previous();
-            Expr value = assignment(); // Recursion
+            Expr value = assignment(); // Recursion, allows a = b = c as valid expression
 
             // if valid rvalue
             if (expr instanceof Expr.Variable) {
                 Token name = ((Expr.Variable)expr).name;
                 return new Expr.Assign(name, value);
+            } else if (expr instanceof Expr.Get) {
+                @SuppressWarnings("PatternVariableCanBeUsed")
+                Expr.Get get = (Expr.Get) expr;
+                return new Expr.Set(get.object, get.name, value);
             }
             // not a valid rvalue
             throw error(equals, "Invalid assignment target.");
@@ -370,11 +390,15 @@ public class Parser {
     private Expr call() {
         Expr expr = primary();
 
-        //noinspection ConditionalBreakInInfiniteLoop
         while (true) {
-            if (!match(LEFT_PAREN))
+            if (match(LEFT_PAREN)) {
+                expr = finishCall(expr);
+            } else if (match(DOT)) {
+                Token name = consume(IDENTIFIER, "Expected property name after '.'");
+                expr = new Expr.Get(expr, name);
+            } else {
                 break;
-            expr = finishCall(expr);
+            }
         }
         return expr;
     }
@@ -397,6 +421,7 @@ public class Parser {
     private Expr primary() {
         if (match(FALSE)) return new Expr.Literal(false);
         if (match(TRUE)) return new Expr.Literal(true);
+        if (match(THIS)) return new Expr.This(previous());
         if (match(NIL)) return new Expr.Literal(null);
 
         if (match(NUMBER, STRING)) {
@@ -408,6 +433,7 @@ public class Parser {
             consume(RIGHT_PAREN, "Expect ')' after expression.");
             return new Expr.Grouping(expr);
         }
+
 
         if (match(IDENTIFIER)) {
             return new Expr.Variable(previous());

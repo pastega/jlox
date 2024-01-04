@@ -37,7 +37,7 @@ package com.craftinginterpreters.lox;
  *      its job is to do static semantic analysis on the code
  *
  *   It walks the entire tree once, resolving each symbol scope.
- *
+ *   EDIT: and also check a bunch of other stuff. But started as symbol scope resolution
  */
 
 import java.util.List;
@@ -52,10 +52,16 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
 
     private enum FunctionType {
         NONE,
-        FUNCITON
+        FUNCTION,
+        METHOD
     }
-
     private FunctionType currentFunction = FunctionType.NONE;
+
+    private enum ClassType {
+        NONE,
+        CLASS
+    }
+    private ClassType currentClass = ClassType.NONE;
 
     public Resolver(Interpreter interpreter) {
         this.interpreter = interpreter;
@@ -87,7 +93,8 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     private void resolveLocal(Expr expr, Token name) {
         for (int i = scopes.size() - 1; i >= 0; i--) {
             if (scopes.get(i).containsKey(name.lexeme)) {
-                interpreter.resolve(expr, scopes.size() - 1 - i);
+                int depth = scopes.size() - 1 - i;
+                interpreter.resolve(expr, depth);
                 return;
             }
         }
@@ -116,22 +123,28 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
         scopes.pop();
     }
 
+    /*
+     *  The separation between declare and define seems to only
+     *  exist to avoid initializing the variable using its own "ghost" value.
+     *  Or using a variable in parent scope with the same identifier name.
+     */
+
     private void declare(Token name) {
-        if (scopes.isEmpty()) return;
+        if (scopes.isEmpty()) return; // Global scope. Nothing to do.
 
         Map<String, Boolean> scope = scopes.peek();
         // Local variables cannot shadow variables in the same scope like rust does.
         if (scope.containsKey(name.lexeme)) {
             Lox.error(name, "Already a variable with this name in this scope");
         }
-
-        // Mark the variable as "not ready" yet. By putting false;
+        // Recognizes the existence of non-global variable but
+        // marks it as "not ready" yet. By putting false;
         // This means we have not finished resolving its initializer;
         scope.put(name.lexeme, false);
     }
 
     private void define(Token name) {
-        if (scopes.isEmpty()) return;
+        if (scopes.isEmpty()) return; // Global scope. Nothing to do.
         // Mark the variable as fully initialized
         scopes.peek().put(name.lexeme, true);
     }
@@ -164,6 +177,12 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Void visitGetExpr(Expr.Get expr) {
+        resolve(expr.object);
+        return null;
+    }
+
+    @Override
     public Void visitGroupingExpr(Expr.Grouping expr) {
         resolve(expr.expression);
         return null;
@@ -179,6 +198,23 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     public Void visitLogicalExpr(Expr.Logical expr) {
         resolve(expr.left);
         resolve(expr.right);
+        return null;
+    }
+
+    @Override
+    public Void visitSetExpr(Expr.Set expr) {
+        resolve(expr.value);
+        resolve(expr.object);
+        return null;
+    }
+
+    @Override
+    public Void visitThisExpr(Expr.This expr) {
+        if (currentClass == ClassType.NONE){
+            Lox.error(expr.keyword, "Can't use 'this' outside of a class.");
+            return null;
+        }
+        resolveLocal(expr, expr.keyword);
         return null;
     }
 
@@ -209,6 +245,29 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     }
 
     @Override
+    public Void visitClassStmt(Stmt.Class stmt) {
+        ClassType enclosingClass = currentClass;
+        currentClass = ClassType.CLASS;
+
+        declare(stmt.name);
+        define(stmt.name);
+
+        // Parent environment of all methods with "this" variable injected
+        beginScope();
+        scopes.peek().put("this", true); // Declare and define this
+
+        for (Stmt.Function method : stmt.methods) {
+            FunctionType declaration = FunctionType.METHOD;
+            resolveFunction(method, declaration);
+        }
+
+        endScope();
+
+        currentClass = enclosingClass;
+        return null;
+    }
+
+    @Override
     public Void visitExpressionStmt(Stmt.Expression stmt) {
         resolve(stmt.expression);
         return null;
@@ -223,7 +282,7 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
         declare(stmt.name);
         define(stmt.name);
 
-        resolveFunction(stmt, FunctionType.FUNCITON);
+        resolveFunction(stmt, FunctionType.FUNCTION);
         return null;
     }
 
@@ -259,7 +318,7 @@ public class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
      *
      *  var a = "outer";
      *  {
-     *  var a = a;
+     *      var a = a;
      *  }
      *  This should generate an error.
      *

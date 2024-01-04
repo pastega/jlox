@@ -1,3 +1,4 @@
+/*
 package com.craftinginterpreters.lox;
 
 public class AstPrinter implements Expr.Visitor<String> {
@@ -22,6 +23,11 @@ public class AstPrinter implements Expr.Visitor<String> {
     }
 
     @Override
+    public String visitGetExpr(Expr.Get expr) {
+        return null;
+    }
+
+    @Override
     public String visitGroupingExpr(Expr.Grouping expr) {
         return parenthesize("group", expr.expression);
     }
@@ -34,6 +40,16 @@ public class AstPrinter implements Expr.Visitor<String> {
 
     @Override
     public String visitLogicalExpr(Expr.Logical expr) {
+        return null;
+    }
+
+    @Override
+    public String visitSetExpr(Expr.Set expr) {
+        return null;
+    }
+
+    @Override
+    public String visitThisExpr(Expr.This expr) {
         return null;
     }
 
@@ -60,3 +76,4 @@ public class AstPrinter implements Expr.Visitor<String> {
         return builder.toString();
     }
 }
+*/
